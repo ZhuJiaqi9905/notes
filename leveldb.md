@@ -210,6 +210,11 @@ Current文件：
 
 这个文件的内容只有一个信息，就是记载当前的manifest文件名。
 
+leveldb中有两种log文件：
+
+- 平时写程序的输出log.println()，是放到LOG文件。
+- WAL LOG文件(binlog)，用来支持事务完整性。
+
 ### SST中的合并
 
 SST中存储很多<K, V>对，但是由于更新操作。在SST的下层的很多<K,V>对是已经失效的。如果不清理，会占用很大的磁盘空间。因此用SST合并来删除失效的<K,V>对。
@@ -237,3 +242,20 @@ SSTable newFiles = files + compact;
    - compact是写入到WAL LOG的。写入成功之后，只需要读出这个compact，然后再操作一次。
      生成newFiles。
 ```
+
+## 版本概念
+
+leveldb中SST要定期进行合并。但是假设S1和S2要与下层的S3合并，合并过程中还有读请求来读这些文件，那么这些文件并不能被销毁。当S1, S2, S3生成新的合并文件后，旧有的文件(S1, S2, S3)还可能在处理读请求，就不能将其直接销毁。因此引入了版本的概念。
+
+- 旧有的文件组成一个版本Version。
+
+- 合并操作称之为VersionEdit。
+
+- 旧的版本与新的版本可以共存。当新版本完成的之后。用户发起来的请求就到新的版本上。这个新的版本就叫current。
+
+- 假设Version1在生成Version2的时候，Version1正在服务很多读请求。Version1自然不能丢。
+
+- - 当Version2生成好了之后，Version2也开始服务很多读请求。
+  - Version2到达某一时刻，也会开始进行合并，生成Version3。由于Version2还在服务读请求。自然不能丢弃。
+
+- 当某个旧的Verions不再被读的时候。这些旧的Version就会被删除了。
