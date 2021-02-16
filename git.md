@@ -125,3 +125,11 @@ $ git add .
 $ git commit -m 'update .gitignore'
 ```
 
+## 远程分支
+
+```
+$ git remote rm upstream
+$ git remote add upstream https://github.com/Foo/repos.git
+$ git remote set-url upstream https://github.com/Foo/repos.git
+```
+

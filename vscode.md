@@ -12,8 +12,11 @@
 | 跳转到文件中某一符号             | ctrl + shift + o                       |
 | 跳转到某一行                     | ctrl + G                               |
 | 并排编辑                         | ctrl + p打开文件，ctrl + Enter选择文件 |
-|                                  |                                        |
-|                                  |                                        |
-|                                  |                                        |
+| 快捷键大全                       | ctrl + K -> ctrl + S                   |
+| 打开用户设置                     | ctrl + ,                               |
+| 向后/前跳转                      | alt + <- / ->                          |
+| 把当前行内容向上/下移动          | alt + $uparrow$  / $downarrow$         |
+| 替换                             | ctrl + H                               |
+| 打开终端                         | ctrl + `                               |
 |                                  |                                        |
 
