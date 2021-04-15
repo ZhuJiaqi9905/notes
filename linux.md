@@ -1,6 +1,10 @@
 # linux
 
-https://explainshell.com/
+## 基础命令
+
+命令记不住，就用`tldr`: https://waleon.blog.csdn.net/article/details/112256208
+
+解释每个命令的含义：https://explainshell.com/
 
 ### 小贴士
 
@@ -55,7 +59,7 @@ $ type [-tpa] name
 - 可用转义字符`\`
 - 如果一串命令的执行需要借由其他额外的命令所提供的信息，可以用`` `命令` ``或者`$(命令)`：例如`version=$(echo "hello")`或者`` version=`echo "hello"` ``,得到`version="hello"`
 
-- 若该变量为扩增变了内容时，可用`"$变量"`或`${变量}`累加内容：如`PATH="$PATH":/home/bin`或``PATH=${PATH}:/home/bin``
+- 若该变量为扩增变量内容时，可用`"$变量"`或`${变量}`累加内容：如`PATH="$PATH":/home/bin`或``PATH=${PATH}:/home/bin``
 
 - 如果该变量需要在其他子程序中使用，则需要以export来使变量变成环境变量
 - 通常大写字符为系统默认变量，小写为用户自定义的变量

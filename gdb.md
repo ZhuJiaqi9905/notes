@@ -2,6 +2,14 @@
 
 [TOC]
 
+参考：
+
+https://wizardforcel.gitbooks.io/100-gdb-tips/content/set-program-args.html
+
+## 信息显示
+
+启动时不显示信息：在`~/.bashrc`中，为gdb设置一个别名：`alias gdb="gdb -q"`
+
 ## 打开gdb
 
 ### 打开程序
@@ -25,6 +33,12 @@ gdb <program> core 用gdb同时调试一个运行程序和core文件，core是�
 ```
 -directory <directory>
 -d <directory> 添加一个源文件的搜索路径。默认是环境变量中PATH所定义的路径。
+```
+
+可以在gdb启动时，通过选项指定被调试程序的参数，例如：
+
+```
+$ gdb -args ./a.out a b c
 ```
 
 ### 运行前设置
@@ -75,7 +89,9 @@ make <make-args>
 等价于shell make <make-args>
 ```
 
+### 清屏
 
+`[ctrl] + L`或者`shell clear`
 
 ## 暂停程序
 
@@ -172,7 +188,7 @@ n
 
 ```
 finish 运行程序，直到当前函数完成返回。
-f
+f 缩写好像没有用
 ```
 
 ```
@@ -197,6 +213,7 @@ ni
 print <expr>
 p <expr>
 p /<f> <expr>  <f>是输出格式。例如/x是16进制输出
+p func 执行函数（方便地使用print调试）
 ```
 
 ### 输出格式

@@ -25,12 +25,10 @@
 ## 分支
 
 - `git branch`: 查看分支。
-
 - `git branch feature-A` : 创建分支。
-
 - `git checkout feature-A`: 切换进`feature-A`分支。
-
 - `git checkout -b feature-A`: 等价于下面两条语句
+- `git branch -d dev` 删除分支，必须要和上游分支merge，,如果没有上游分支,必须要和`HEAD`完全merge。而``git branch -D dev`能强制删除分支。
 
 ```
 git branch feature-A
@@ -63,6 +61,14 @@ git rm --cached -r cpp/out/
 –name-only选项能使结果看起来简洁些
 
 `git ls-files`
+
+查看本地分支和远端分支的对应关系
+
+```
+git branch -vv
+```
+
+
 
 ## .gitignore文件
 
@@ -131,5 +137,27 @@ $ git commit -m 'update .gitignore'
 $ git remote rm upstream
 $ git remote add upstream https://github.com/Foo/repos.git
 $ git remote set-url upstream https://github.com/Foo/repos.git
+```
+
+
+
+### pull
+
+```
+git pull <远程主机名> <远程分支名>:<本地分支名>
+```
+
+Git也允许手动建立追踪关系。
+
+```shell
+$ git branch --set-upstream-to=origin/<branch> release
+```
+
+上面命令指定本地的`release`分支追踪到远程的`origin/<branch>`分支。
+
+撤销与远程分支的联系
+
+```
+git branch --unset-upstream
 ```
 
