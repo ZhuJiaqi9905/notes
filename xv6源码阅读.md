@@ -518,7 +518,7 @@ userret:
 
 ```
 
-``usertrap`主要是确定trap的原因，处理它，然后调用`usertrapret`返回。
+`usertrap`主要是确定trap的原因，处理它，然后调用`usertrapret`返回。
 
 它首先改变**stvec**，这样在内核中发生的trap将由**kernelvec**处理。然后它把**sepc**（用户态会把用户的PC值写到sepc寄存器中）保存到`p->trapframe->epc`中，这也是因为**usertrap**中可能会出现进程切换，导致**sepc**被覆盖。
 
@@ -643,6 +643,243 @@ usertrapret(void)
   // and switches to user mode with sret.
   uint64 fn = TRAMPOLINE + (userret - trampoline);
   ((void (*)(uint64,uint64))fn)(TRAPFRAME, satp);
+}
+```
+
+#### 用户态调用system call
+
+用户代码将**exec**的参数放在寄存器**a0**和**a1**中，并将系统调用号放在**a7**中。系统调用号与函数指针表**syscalls**数组(kernel/syscall.c)中的项匹配。**ecall**指令进入内核，执行**uservec**、**usertrap**，然后执行**syscall**，就像我们上面看到的那样。
+
+`syscall()`从**trapframe**中的**a7**中得到系统调用号，并其作为索引来查找相应函数。例如：对于系统调用**exec**，a7将被设置为`SYS_exec`，这会让`syscall`调用**exec**的实现函数`sys_exec()`。
+
+当系统调用函数返回时，syscall将其返回值记录在**p->trapframe->a0**中。用户空间的`exec()`将会返回该值，因为RISC-V上的C调用通常将返回值放在**a0**中。系统调用返回负数表示错误，0或正数表示成功。如果系统调用号无效，`syscall()`会打印错误并返回-1。
+
+```c
+// kernel/syscall.c
+
+static uint64 (*syscalls[])(void) = {
+[SYS_fork]    sys_fork,
+[SYS_exit]    sys_exit,
+[SYS_wait]    sys_wait,
+[SYS_pipe]    sys_pipe,
+[SYS_read]    sys_read,
+[SYS_kill]    sys_kill,
+[SYS_exec]    sys_exec,
+[SYS_fstat]   sys_fstat,
+[SYS_chdir]   sys_chdir,
+[SYS_dup]     sys_dup,
+[SYS_getpid]  sys_getpid,
+[SYS_sbrk]    sys_sbrk,
+[SYS_sleep]   sys_sleep,
+[SYS_uptime]  sys_uptime,
+[SYS_open]    sys_open,
+[SYS_write]   sys_write,
+[SYS_mknod]   sys_mknod,
+[SYS_unlink]  sys_unlink,
+[SYS_link]    sys_link,
+[SYS_mkdir]   sys_mkdir,
+[SYS_close]   sys_close,
+};
+
+void
+syscall(void)
+{
+  int num;
+  struct proc *p = myproc();
+
+  num = p->trapframe->a7;
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    p->trapframe->a0 = syscalls[num]();
+  } else {
+    printf("%d %s: unknown sys call %d\n",
+            p->pid, p->name, num);
+    p->trapframe->a0 = -1;
+  }
+}
+
+```
+
+### 从内核态trap
+
+在从内核态trap时，xv6设置的寄存器方式与从用户态trap时不同。
+
+当内核在CPU上执行时，内核将**stvec**(这个寄存器记录处理trap的函数的地址，从而让系统跳到这个地址来处理trap)指向**kernelvec**上的汇编代码（kernel/kernelvec.S）。由于xv6已经在内核中，**kernelvec**可以使用**satp**，将其设置为内核页表，以及引用有效内核的堆栈指针。**kernelvec**保存所有寄存器，以便中断的代码最后可以在没有中断的情况下恢复。
+
+kernelvec将寄存器保存在中断内核线程的堆栈上。这样能保证：如果trap导致线程A切换到线程B，trap将返回到线程B的栈上。而这种情况下，kernelvec能保证线程A的寄存器安全地保留在其堆栈上。
+
+```
+# kernel/kernelvec.S
+
+#
+        # interrupts and exceptions while in supervisor
+        # mode come here.
+        #
+        # push all registers, call kerneltrap(), restore, return.
+        #
+.globl kerneltrap
+.globl kernelvec
+.align 4
+kernelvec:
+        // make room to save registers.
+        addi sp, sp, -256
+
+        // save the registers.
+        sd ra, 0(sp)
+        sd sp, 8(sp)
+        sd gp, 16(sp)
+        sd tp, 24(sp)
+        sd t0, 32(sp)
+        sd t1, 40(sp)
+        sd t2, 48(sp)
+        sd s0, 56(sp)
+        sd s1, 64(sp)
+        sd a0, 72(sp)
+        sd a1, 80(sp)
+        sd a2, 88(sp)
+        sd a3, 96(sp)
+        sd a4, 104(sp)
+        sd a5, 112(sp)
+        sd a6, 120(sp)
+        sd a7, 128(sp)
+        sd s2, 136(sp)
+        sd s3, 144(sp)
+        sd s4, 152(sp)
+        sd s5, 160(sp)
+        sd s6, 168(sp)
+        sd s7, 176(sp)
+        sd s8, 184(sp)
+        sd s9, 192(sp)
+        sd s10, 200(sp)
+        sd s11, 208(sp)
+        sd t3, 216(sp)
+        sd t4, 224(sp)
+        sd t5, 232(sp)
+        sd t6, 240(sp)
+
+	// call the C trap handler in trap.c
+        call kerneltrap
+
+        // restore registers.
+        ld ra, 0(sp)
+        ld sp, 8(sp)
+        ld gp, 16(sp)
+        // not this, in case we moved CPUs: ld tp, 24(sp)
+        ld t0, 32(sp)
+        ld t1, 40(sp)
+        ld t2, 48(sp)
+        ld s0, 56(sp)
+        ld s1, 64(sp)
+        ld a0, 72(sp)
+        ld a1, 80(sp)
+        ld a2, 88(sp)
+        ld a3, 96(sp)
+        ld a4, 104(sp)
+        ld a5, 112(sp)
+        ld a6, 120(sp)
+        ld a7, 128(sp)
+        ld s2, 136(sp)
+        ld s3, 144(sp)
+        ld s4, 152(sp)
+        ld s5, 160(sp)
+        ld s6, 168(sp)
+        ld s7, 176(sp)
+        ld s8, 184(sp)
+        ld s9, 192(sp)
+        ld s10, 200(sp)
+        ld s11, 208(sp)
+        ld t3, 216(sp)
+        ld t4, 224(sp)
+        ld t5, 232(sp)
+        ld t6, 240(sp)
+
+        addi sp, sp, 256
+
+        // return to whatever we were doing in the kernel.
+        sret
+
+        #
+        # machine-mode timer interrupt.
+        #
+.globl timervec
+.align 4
+timervec:
+        # start.c has set up the memory that mscratch points to:
+        # scratch[0,8,16] : register save area.
+        # scratch[24] : address of CLINT's MTIMECMP register.
+        # scratch[32] : desired interval between interrupts.
+        
+        csrrw a0, mscratch, a0
+        sd a1, 0(a0)
+        sd a2, 8(a0)
+        sd a3, 16(a0)
+
+        # schedule the next timer interrupt
+        # by adding interval to mtimecmp.
+        ld a1, 24(a0) # CLINT_MTIMECMP(hart)
+        ld a2, 32(a0) # interval
+        ld a3, 0(a1)
+        add a3, a3, a2
+        sd a3, 0(a1)
+
+        # raise a supervisor software interrupt.
+	li a1, 2
+        csrw sip, a1
+
+        ld a3, 16(a0)
+        ld a2, 8(a0)
+        ld a1, 0(a0)
+        csrrw a0, mscratch, a0
+
+        mret
+
+```
+
+kernelvec在保存寄存器后跳转到`kerneltrap()`（kernel/trap.c）。
+
+`kerneltrap()`会处理两种trap：
+
+- device interrupt。用`devintr()`处理
+- exception。发生在内核中的exception一定是致命错误，内核会调用panic并停止执行
+
+如果由于计时器中断而调用了kerneltrap，并且进程的内核线程正在运行（而不是调度程序线程），kerneltrap调用会让出CPU，允许其他线程运行。
+
+当`kerneltrap`的工作完成时，它需要返回到被中断的代码。由于`yield()`让出CPU可能破坏**sepc**(当trap发生时，RISC-V会将pc保存在这里)和在**sstatus**(用来记录设备中断是否被启用)中的值，所以kerneltrap在启动时保存**sepc**和**sstatus**的值，并在最后恢复他们。之后`kerneltrap`会返回到`kernelvec`（注意kernelvec这个汇编代码中`call kernveltrap`，实际上执行kerneltrap是汇编代码的一部分），`kernelvec`会从堆栈恢复保存的寄存器并执行sret，sret将sepc复制到pc，从而恢复中断的内核代码。
+
+当CPU从用户空间进入内核时，Xv6将CPU的stvec设置为kernelvec；可以在usertrap（kernel/trap.c）中看到这一点。内核运行但stvec被设置为uservec时，这期间有一个时间窗口，在这个窗口期，禁用设备中断是至关重要的。幸运的是，RISC-V总是在开始使用trap时禁用中断，xv6在设置stvec之前不会再次启用它们。
+
+```c
+// kerneltrap
+// kernel/trap.c
+
+// interrupts and exceptions from kernel code go here via kernelvec,
+// on whatever the current kernel stack is.
+void 
+kerneltrap()
+{
+  int which_dev = 0;
+  uint64 sepc = r_sepc();
+  uint64 sstatus = r_sstatus();
+  uint64 scause = r_scause();
+  
+  if((sstatus & SSTATUS_SPP) == 0)
+    panic("kerneltrap: not from supervisor mode");
+  if(intr_get() != 0)
+    panic("kerneltrap: interrupts enabled");
+
+  if((which_dev = devintr()) == 0){// device interrupt
+    printf("scause %p\n", scause);
+    printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
+    panic("kerneltrap");
+  }
+
+  // give up the CPU if this is a timer interrupt.
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+    yield();
+
+  // the yield() may have caused some traps to occur,
+  // so restore trap registers for use by kernelvec.S's sepc instruction.
+  w_sepc(sepc);
+  w_sstatus(sstatus);
 }
 ```
 
@@ -824,11 +1061,9 @@ scheduler(void)
   }
 }
 ```
-`swtch` returns on the scheduler’s stack as
-though scheduler’s swtch had returned. The scheduler continues the for loop, finds a process
-to run, switches to it, and the cycle repeats.
+`swtch` returns on the scheduler’s stack as though scheduler’s swtch had returned. The scheduler continues the for loop, finds a process to run, switches to it, and the cycle repeats.
 
-`sched()`调用`swtch`后，会返回到`scheduler()`函数的`swtch`的下一跳语句处。然后遍历所有进程，找到一个runnable，再switch到该runnable进程，而这次switch完成后，则是从该进程context中ra指向的位置开始运行（不一定是sched中的switch，对于一个被fork产生的进程，他最初被调度时，的ra被设置为forkret，所以他第一次被调度后，会去执行forkret函数）
+`sched()`调用`swtch`后，会返回到`scheduler()`函数的`swtch`的下一跳语句处。然后遍历所有进程，找到一个runnable，再switch到该runnable进程，而这次switch完成后，则是从该进程context中ra指向的位置开始运行（不一定是sched中的switch，对于一个被fork产生的进程，他最初被调度时的ra被设置为forkret，所以他第一次被调度后，会去执行forkret函数）
 
 ``` C
 // kernel/proc.c
@@ -854,4 +1089,3 @@ forkret(void)
   usertrapret();
 }
 ```
-再来看一下`scheduler()`函数：

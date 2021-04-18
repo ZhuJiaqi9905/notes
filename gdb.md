@@ -177,7 +177,7 @@ fg
 ```
 step <count> 会进入函数。前提是此函数被编译有debug信息。
 s
-set step-mode on 在进行但不跟踪时，程序不会因为没有debug信息而不停下。有利于查看机器码。
+set step-mode on 在进行但不跟踪时，程序不会因为没有debug信息而不停下。有利于查看机器码。即使一个函数没有调试信息，也能step进入该函数
 set step-mode off
 ```
 
@@ -303,3 +303,30 @@ enable display <dnums...>
 ```
 
 ### 设置显示选项
+
+
+
+### 堆栈信息
+
+打印栈信息
+
+```
+backtrace 
+bt
+
+backtrace n
+bt n
+n是一个正整数，表示只打印栈顶上n层的栈信息。
+
+backtrace -n
+bt -n
+-n表一个负整数，表示只打印栈底下n层的栈信息。
+```
+
+### 函数名称
+
+```
+info functions 列出所有可执行文件中的函数名字
+info functions regex 支持正则
+```
+
