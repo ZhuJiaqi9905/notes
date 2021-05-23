@@ -1,5 +1,22 @@
 # XV6源码阅读
 
+gdb调试
+
+一个窗口下运行: `make qemu-gdb`
+
+另一个窗口下运行：`gdb-multiarch kernel/kernel`
+
+比如想在vm.c文件打断点。就：
+
+```
+file kernel/vm.o
+b walk
+```
+
+然后就一路c，直到第一个窗口下变成shell模式
+
+目前在开机过程中可以自由在内核态调试。但是一旦出现用户态系统调用到内核，就不知道怎么调试了。
+
 ## 基础
 
 `kernel/defs.h`声明了kernel的函数和数据结构
@@ -1089,3 +1106,9 @@ forkret(void)
   usertrapret();
 }
 ```
+
+epc, callee-saved register， caller-saved register必须保存。因为有可能callee还没恢复就走了。
+
+kernel_satp不用保存
+
+kernel_hartid不能保存。因为多核时候可能被改。保存了也不会出错，因为usertrapret也会重新更新hartid

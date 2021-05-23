@@ -12,6 +12,11 @@
 
 `git status`: 查看仓库的状态。
 
+配置用户名和邮箱：
+
+- `git config user.name xxx`
+- `git config user.email xxx`
+
 ## commit时记录详细信息
 
 执行`commit -m`命令。然后编辑器会启动。记录详细信息格式如下：
@@ -24,24 +29,27 @@
 
 ## 分支
 
-- `git branch`: 查看分支。
-- `git branch feature-A` : 创建分支。
-- `git checkout feature-A`: 切换进`feature-A`分支。
-- `git checkout -b feature-A`: 等价于下面两条语句
-- `git branch -d dev` 删除分支，必须要和上游分支merge，,如果没有上游分支,必须要和`HEAD`完全merge。而``git branch -D dev`能强制删除分支。
+`git branch`: 查看分支。
 
-```
-git branch feature-A
-git checkout feature-A
-```
+`git branch feature-A` : 创建分支。
 
+`git checkout feature-A`: 切换进`feature-A`分支。
 
+`git checkout -b feature-A`: 等价于上面两条语句
+
+`git branch -m old_name new_name`：把`old_name`分支重命名为`new_name`
+
+`git branch -d dev` 删除分支，必须要和上游分支merge，,如果没有上游分支,必须要和`HEAD`完全merge。而``git branch -D dev`能强制删除分支。
+
+## 远端仓库
+
+### push
 
 ```
 git push -u origin master:test
 ```
 
-把本地master分支上的内容推送到远程的test分支上
+把本地master分支上的内容推送到远程origin的test分支上
 
 ```
 对某个文件取消跟踪
