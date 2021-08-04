@@ -101,6 +101,10 @@ Verbs API除了IB_VERBS和RDMA_CM之外，还有MAD（Management Datagram）接�
   - Size: the size of the data that will be read from / written to this address.
   -  L_key: the local key of the MR that was registered to this buffer.
 
+![](figs/70.png)
+
+
+
 `struct ibv_send_wr`
 
 - is used to implement SR
@@ -355,6 +359,10 @@ int ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr 
 
 
 
+
+
+
+
 ## rdma api
 
 ### event channel
@@ -545,6 +553,122 @@ int rdma_dereg_mr(struct ibv_mr *mr);
 ```
 
 ![](figs/64.png)
+
+
+
+### event handling
+
+```c
+int rdma_get_cm_event(struct rdma_event_channel *channel, struct rdma_cm_event **event);
+```
+
+![](figs/73.png)
+
+![](figs/74.png)
+
+![](figs/75.png)
+
+
+
+```c
+int rdma_ack_cm_event(struct rdma_cm_event *event);
+```
+
+![](figs/76.png)
+
+
+
+```c
+char *rdma_event_str(enum rdma_cm_event_type event);
+```
+
+![](figs/77.png)
+
+
+
+### post recv/send
+
+
+
+```c
+int rdma_post_recv(struct rdma_cm_id *id, void *context, void *addr, size_t length, struct ibv_mr *mr);
+```
+
+![](figs/65.png)
+
+
+
+```c
+int rdma_post_recvv(struct rdma_cm_id *id, void *context, struct ibv_sge *sgl, int nsge);
+```
+
+![](figs/66.png)
+
+- 这个是support scatter-gather entries.
+
+
+
+```c
+int rdma_post_send(struct rdma_cm_id *id, void *context, void *addr, size_t length, struct ibv_mr *mr, int flags);
+```
+
+![](figs/67.png)
+
+
+
+```c
+int rdma_post_sendv(struct rdma_cm_id *id, void *context, struct ibv_sge *sgl, int nsge, int flags)
+```
+
+
+
+```c
+int rdma_post_write(struct rdma_cm_id *id, void *context, void *addr, size_t length, struct ibv_mr *mr, int flags, uint64_t remote_addr, uint32_t rkey);
+```
+
+![](figs/68.png)
+
+
+
+```c
+int rdma_post_writev(struct rdma_cm_id *id, void *context, struct ibv_sge *sgl, int nsge, int flags, uint64_t remote_addr, uint32_t rkey);
+```
+
+
+
+```c
+int rdma_post_read(struct rdma_cm_id *id, void *context, void *addr, size_t length, struct ibv_mr *mr, int flags, uint64_t remote_addr, uint32_t rkey);
+```
+
+![](figs/69.png)
+
+
+
+```c
+int rdma_post_readv(struct rdma_cm_id *id, void *context, struct ibv_sge *sgl, int nsge, int flags, uint64_t remote_addr, uint32_t rkey);
+```
+
+### get CQE
+
+
+
+```c
+int rdma_get_send_comp(struct rdma_cm_id *id, struct ibv_wc *wc);
+```
+
+![](figs/71.png)
+
+
+
+```c
+int rdma_get_recv_comp(struct rdma_cm_id *id, struct ibv_wc *wc);
+```
+
+![](figs/72.png)
+
+
+
+
 
 
 
