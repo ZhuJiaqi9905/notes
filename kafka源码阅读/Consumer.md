@@ -178,3 +178,68 @@ public void close();
 
 - 在`poll()`方法返回之前调用`onConsume()`对消息进行定制化操作
 - 在提交消费位移后调用`onCommit()`方法
+
+
+虽然一个KafkaChannel一次只能处理一个Send请求，每次Send时都要添加WRITE事件，当Send发送成功后，就要取消掉WRITE。下一个Send请求事件进来时，继续添加WRITE，然后在请求发送成功后，又取消WRITE。因为KafkaChannel是由请求事件驱动的，如果没有请求就不需要监听WRITE，KafkaChannel就不需要做写操作。基本流程就是：开始发送一个Send请求->注册OP_WRITE-> 发送请求… ->Send请求发送完成->取消OP_WRITE
+
+
+## 网络传输
+
+Consumer中fetcher和client互相配合完成网络传输。并且fetcher中引用的client就是this.client.
+
+KafkaConsumer的poll中调用pollForFetches(Timer timer) 。这个函数里面调用fetcher.fetchedRecords()获得records.
+
+fetcher.fetchedRecords()中调用了client.send(fetchTarget, request)发送一个fetchRequest。
+这个send返回一个future，然后在future里面注册一个callback函数。
+注意这个Fetcher中的client就是KafkaConsumer中的client。
+它是`class ConsumerNetworkClient`。
+
+这个ConsumerNetworkClient的send方法如下：
+``` java
+    public RequestFuture<ClientResponse> send(Node node,
+                                              AbstractRequest.Builder<?> requestBuilder,
+                                              int requestTimeoutMs) {
+        long now = time.milliseconds();
+        RequestFutureCompletionHandler completionHandler = new RequestFutureCompletionHandler();
+        ClientRequest clientRequest = client.newClientRequest(node.idString(), requestBuilder, now, true,
+            requestTimeoutMs, completionHandler);
+        unsent.put(node, clientRequest);
+
+        // wakeup the client in case it is blocking in poll so that we can send the queued request
+        client.wakeup();
+        return completionHandler.future;
+    }
+```
+
+和网络传输有关的就是client.newClientRequest和client.wakeup()。ConsumerNetworkClient中的成员变量client是`interface KafkaClient`。
+查到它的实现是`class NetworkClient`。
+
+所以说ConsumerNetworkClient就像是一个buffer，他只是给KafkaClient一个request并试图叫醒它。
+
+``` java
+    /**
+     * Create a new ClientRequest.
+     *
+     * @param nodeId the node to send to
+     * @param requestBuilder the request builder to use
+     * @param createdTimeMs the time in milliseconds to use as the creation time of the request
+     * @param expectResponse true iff we expect a response
+     * @param requestTimeoutMs Upper bound time in milliseconds to await a response before disconnecting the socket and
+     *                         cancelling the request. The request may get cancelled sooner if the socket disconnects
+     *                         for any reason including if another pending request to the same node timed out first.
+     * @param callback the callback to invoke when we get a response
+     */
+    ClientRequest newClientRequest(String nodeId,
+                                   AbstractRequest.Builder<?> requestBuilder,
+                                   long createdTimeMs,
+                                   boolean expectResponse,
+                                   int requestTimeoutMs,
+                                   RequestCompletionHandler callback);
+    
+    /**
+     * Wake up the client if it is currently blocked waiting for I/O
+     */
+    void wakeup();
+```
+
+
