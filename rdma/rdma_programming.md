@@ -62,7 +62,8 @@ Verbs API除了IB_VERBS和RDMA_CM之外，还有MAD（Management Datagram）接�
 
 `struct ibv_wc`
 
-- CQE
+- wc: work completion的缩写
+- 对应于CQE的状态等信息
 - 在`ibv_poll_cq()`中传入一个`ibv_wc`的数组以及数组长度
 
 ![](figs/1.PNG)
@@ -124,6 +125,8 @@ Verbs API除了IB_VERBS和RDMA_CM之外，还有MAD（Management Datagram）接�
 
 
 ## ibv api
+
+### 总体流程
 
 使用ibv api编程的总体流程：
 ![](figs/42.jpeg)
@@ -658,6 +661,8 @@ int rdma_get_send_comp(struct rdma_cm_id *id, struct ibv_wc *wc);
 
 ![](figs/71.png)
 
+- 经过实验，是阻塞的
+
 
 
 ```c
@@ -666,7 +671,7 @@ int rdma_get_recv_comp(struct rdma_cm_id *id, struct ibv_wc *wc);
 
 ![](figs/72.png)
 
-
+- 经过实验，是阻塞的
 
 
 

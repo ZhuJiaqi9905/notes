@@ -169,3 +169,20 @@ $ git branch --set-upstream-to=origin/<branch> release
 git branch --unset-upstream
 ```
 
+git远端有很多分支时，git clone 得到主分支。
+
+然后git branch -a显示所有分支（包括远端的）
+
+git checkout -b zjq/misra origin/zjq/misra
+
+新建本地分支并且和远端分支关联上
+
+
+
+```
+git remote -v
+git fetch origin master 获取远端origin的master分支
+git log -p master..origin/master 查看本地master与远端master的差异
+git merge origin/master 合并远端orgin的master分支到当前分支
+```
+

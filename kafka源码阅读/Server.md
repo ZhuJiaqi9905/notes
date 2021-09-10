@@ -39,3 +39,164 @@ Kafka中使用了JDK中的DelayQueue来推进时间轮。具体做法是对于�
 ## Controller 控制器
 
 kafka中有一个或者多个broker,其中一个brocker会被选举为controller，它负责管理整个集群中所有分区和副本的状态。
+
+
+
+
+
+主程序：Kafka.scala
+
+Kafka.scala里面buildServer()，new一个KafkaServer。添加shutdown的钩子。调用server.startup()
+
+KafkaServer的startup()里面调用了socketServer的startup(startProcessingRequests = false),最后调用了socketServer的startProcessingRequests.
+
+ Acceptor has N Processor threads that each have their own selector and read requests from sockets, M Handler threads that handle requests and produce responses back to the processor threads for writing.
+
+
+
+### KafkaServer调用的startup()
+
+```scala
+def startup(startProcessingRequests: Boolean = true,
+            controlPlaneListener: Option[EndPoint] = config.controlPlaneListener,
+            dataPlaneListeners: Seq[EndPoint] = config.dataPlaneListeners): Unit = {
+  this.synchronized {
+    createControlPlaneAcceptorAndProcessor(controlPlaneListener)
+    createDataPlaneAcceptorsAndProcessors(config.numNetworkThreads, dataPlaneListeners)
+    if (startProcessingRequests) {
+      this.startProcessingRequests()
+    }
+  }
+ ...
+}
+```
+
+startup()里面好像默认是没有ControlPlane的事的。所以只创建了DataPlane的Acceptor和Processor。
+
+```scala
+private def createDataPlaneAcceptorsAndProcessors(dataProcessorsPerListener: Int,
+                                                  endpoints: Seq[EndPoint]): Unit = {
+  info(s"in createDataPlaneAcceptorsAndProcessors")
+  endpoints.foreach { endpoint =>
+    connectionQuotas.addListener(config, endpoint.listenerName)
+    val dataPlaneAcceptor = createAcceptor(endpoint, DataPlaneMetricPrefix)
+    addDataPlaneProcessors(dataPlaneAcceptor, endpoint, dataProcessorsPerListener)
+    dataPlaneAcceptors.put(endpoint, dataPlaneAcceptor)
+    info(s"Created data-plane acceptor and processors for endpoint : ${endpoint.listenerName}")
+  }
+  info(s"out createDataPlaneAcceptorsAndProcessors")
+}
+```
+
+```scala
+private def createAcceptor(endPoint: EndPoint, metricPrefix: String) : Acceptor = {
+  val sendBufferSize = config.socketSendBufferBytes
+  val recvBufferSize = config.socketReceiveBufferBytes
+  new Acceptor(endPoint, sendBufferSize, recvBufferSize, nodeId, connectionQuotas, metricPrefix, time)// call OpenServerRdmaChannel to init a serverRdmaChannel
+}
+```
+
+OpenServerRdmaChannel里面建立了一个serverChannel并bind，listen.
+
+### socketServer的startProcessingRequests()
+
+```shell
+def startProcessingRequests(authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = Map.empty): Unit = {
+  info("Starting socket server acceptors and processors")
+  this.synchronized {
+    if (!startedProcessingRequests) {
+      startControlPlaneProcessorAndAcceptor(authorizerFutures)
+      startDataPlaneProcessorsAndAcceptors(authorizerFutures)
+      startedProcessingRequests = true
+    } else {
+      info("Socket server acceptors and processors already started")
+    }
+  }
+  info("Started socket server acceptors and processors")
+}
+```
+
+```scala
+private def startControlPlaneProcessorAndAcceptor(authorizerFutures: Map[Endpoint, CompletableFuture[Void]]): Unit = {
+  info(s"in startControlPlaneProcessorAndAcceptor")
+  controlPlaneAcceptorOpt.foreach { controlPlaneAcceptor =>
+    val endpoint = config.controlPlaneListener.get
+    startAcceptorAndProcessors(ControlPlaneThreadPrefix, endpoint, controlPlaneAcceptor, authorizerFutures)
+  }
+  info(s"out startControlPlaneProcessorAndAcceptor")
+}
+
+```
+
+因为没有ControlPlaneProcessor,所以这个函数什么都没做。
+
+
+
+```scala
+/**
+ * Starts processors of all the data-plane acceptors and all the acceptors of this server.
+ *
+ * We start inter-broker listener before other listeners. This allows authorization metadata for
+ * other listeners to be stored in Kafka topics in this cluster.
+ */
+private def startDataPlaneProcessorsAndAcceptors(authorizerFutures: Map[Endpoint, CompletableFuture[Void]]): Unit = {
+  info(s"in startDataPlaneProcessorsAndAcceptors")
+  val interBrokerListener = dataPlaneAcceptors.asScala.keySet
+    .find(_.listenerName == config.interBrokerListenerName)
+  val orderedAcceptors = interBrokerListener match {
+    case Some(interBrokerListener) => List(dataPlaneAcceptors.get(interBrokerListener)) ++
+      dataPlaneAcceptors.asScala.filter { case (k, _) => k != interBrokerListener }.values
+    case None => dataPlaneAcceptors.asScala.values
+  }
+  orderedAcceptors.foreach { acceptor =>
+    val endpoint = acceptor.endPoint
+    startAcceptorAndProcessors(DataPlaneThreadPrefix, endpoint, acceptor, authorizerFutures)
+  }
+  info(s"out startDataPlaneProcessorsAndAcceptors")
+}
+```
+
+这个函数最后一步调用了下面的函数
+
+```scala
+private def startAcceptorAndProcessors(threadPrefix: String,
+                                       endpoint: EndPoint,
+                                       acceptor: Acceptor,
+                                       authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = Map.empty): Unit = {
+  debug(s"Wait for authorizer to complete start up on listener ${endpoint.listenerName}")
+  waitForAuthorizerFuture(acceptor, authorizerFutures)
+  debug(s"Start processors on listener ${endpoint.listenerName}")
+  acceptor.startProcessors(threadPrefix)// start all the processors
+  debug(s"Start acceptor thread on listener ${endpoint.listenerName}")
+  if (!acceptor.isStarted()) {
+    KafkaThread.nonDaemon(
+      s"${threadPrefix}-kafka-socket-acceptor-${endpoint.listenerName}-${endpoint.securityProtocol}-${endpoint.port}",
+      acceptor
+    ).start()// start the acceptor
+    acceptor.awaitStartup()
+  }
+  info(s"Started $threadPrefix acceptor and processor(s) for endpoint : ${endpoint.listenerName}")
+}
+```
+
+acceptor的startProcessors()
+
+```scala
+private[network] def startProcessors(processorThreadPrefix: String): Unit = synchronized {
+  if (!processorsStarted.getAndSet(true)) {
+    startProcessors(processors, processorThreadPrefix)
+  }
+}
+
+private def startProcessors(processors: Seq[Processor], processorThreadPrefix: String): Unit = synchronized {
+  processors.foreach { processor =>
+    KafkaThread.nonDaemon(
+      s"${processorThreadPrefix}-kafka-network-thread-$nodeId-${endPoint.listenerName}-${endPoint.securityProtocol}-${processor.id}",
+      processor
+    ).start()// 输出发现他调用了3个processor
+  }
+}
+```
+
+
+
