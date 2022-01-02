@@ -1,5 +1,196 @@
 # Server
 
+最主体的处理部分：
+
+- `core/src/main/scala/kafka/network/SocketServer.scala` 
+- line 900
+
+```scala
+  override def run(): Unit = {
+    startupComplete()
+    try {
+      while (isRunning) {
+        try {
+          // setup any new connections that have been queued up
+          configureNewConnections()
+          // register any new responses for writing
+          processNewResponses()
+          poll()
+          processCompletedReceives()
+          processCompletedSends()
+          processDisconnected()
+          closeExcessConnections()
+        } catch {
+          // We catch all the throwables here to prevent the processor thread from exiting. We do this because
+          // letting a processor exit might cause a bigger impact on the broker. This behavior might need to be
+          // reviewed if we see an exception that needs the entire broker to stop. Usually the exceptions thrown would
+          // be either associated with a specific socket channel or a bad request. These exceptions are caught and
+          // processed by the individual methods above which close the failing channel and continue processing other
+          // channels. So this catch block should only ever see ControlThrowables.
+          case e: Throwable => processException("Processor got uncaught exception.", e)
+        }
+      }
+    } finally {
+      debug(s"Closing selector - processor $id")
+      CoreUtils.swallow(closeAll(), this, Level.ERROR)
+      shutdownComplete()
+    }
+  }
+```
+
+其中最关键的就是中间那几步
+
+```scala
+  private def processNewResponses(): Unit = {
+    var currentResponse: RequestChannel.Response = null
+    while ({currentResponse = dequeueResponse(); currentResponse != null}) {
+      val channelId = currentResponse.request.context.connectionId
+      try {
+        currentResponse match {
+          case response: NoOpResponse =>
+            // There is no response to send to the client, we need to read more pipelined requests
+            // that are sitting in the server's socket buffer
+            updateRequestMetrics(response)
+            trace(s"Socket server received empty response to send, registering for read: $response")
+            // Try unmuting the channel. If there was no quota violation and the channel has not been throttled,
+            // it will be unmuted immediately. If the channel has been throttled, it will be unmuted only if the
+            // throttling delay has already passed by now.
+            handleChannelMuteEvent(channelId, ChannelMuteEvent.RESPONSE_SENT)
+            tryUnmuteChannel(channelId)
+
+          case response: SendResponse =>
+            sendResponse(response, response.responseSend)
+          case response: CloseConnectionResponse =>
+            updateRequestMetrics(response)
+            trace("Closing socket connection actively according to the response code.")
+            close(channelId)
+          case _: StartThrottlingResponse =>
+            handleChannelMuteEvent(channelId, ChannelMuteEvent.THROTTLE_STARTED)
+          case _: EndThrottlingResponse =>
+            // Try unmuting the channel. The channel will be unmuted only if the response has already been sent out to
+            // the client.
+            handleChannelMuteEvent(channelId, ChannelMuteEvent.THROTTLE_ENDED)
+            tryUnmuteChannel(channelId)
+          case _ =>
+            throw new IllegalArgumentException(s"Unknown response type: ${currentResponse.getClass}")
+        }
+      } catch {
+        case e: Throwable =>
+          processChannelException(channelId, s"Exception while processing response for $channelId", e)
+      }
+    }
+  }
+```
+
+
+
+```scala
+  private def poll(): Unit = {
+    val pollTimeout = if (newConnections.isEmpty) 300 else 0
+    try selector.poll(pollTimeout)
+    catch {
+      case e @ (_: IllegalStateException | _: IOException) =>
+        // The exception is not re-thrown and any completed sends/receives/connections/disconnections
+        // from this poll will be processed.
+        error(s"Processor $id poll failed", e)
+    }
+  }
+```
+
+- 在newConnections时，pollTimeout的时间是0，意味着RdmaSelector只执行一次
+- 
+
+```scala
+private def processCompletedReceives(): Unit = {
+  selector.completedReceives.forEach { receive =>
+    try {
+      openOrClosingChannel(receive.source) match {
+        case Some(channel) =>
+          val header = parseRequestHeader(receive.payload)
+          if (header.apiKey == ApiKeys.SASL_HANDSHAKE && channel.maybeBeginServerReauthentication(receive,
+            () => time.nanoseconds()))
+            trace(s"Begin re-authentication: $channel")
+          else {
+            val nowNanos = time.nanoseconds()
+            if (channel.serverAuthenticationSessionExpired(nowNanos)) {
+              // be sure to decrease connection count and drop any in-flight responses
+              debug(s"Disconnecting expired channel: $channel : $header")
+              close(channel.id)
+              expiredConnectionsKilledCount.record(null, 1, 0)
+            } else {
+              val connectionId = receive.source
+              val context = new RequestContext(header, connectionId, channel.socketAddress,
+                channel.principal, listenerName, securityProtocol,
+                channel.channelMetadataRegistry.clientInformation, isPrivilegedListener, channel.principalSerde)
+
+              val req = new RequestChannel.Request(processor = id, context = context,
+                startTimeNanos = nowNanos, memoryPool, receive.payload, requestChannel.metrics, None)
+
+              // KIP-511: ApiVersionsRequest is intercepted here to catch the client software name
+              // and version. It is done here to avoid wiring things up to the api layer.
+              if (header.apiKey == ApiKeys.API_VERSIONS) {
+                val apiVersionsRequest = req.body[ApiVersionsRequest]
+                if (apiVersionsRequest.isValid) {
+                  channel.channelMetadataRegistry.registerClientInformation(new ClientInformation(
+                    apiVersionsRequest.data.clientSoftwareName,
+                    apiVersionsRequest.data.clientSoftwareVersion))
+                }
+              }
+              requestChannel.sendRequest(req)
+              selector.mute(connectionId)
+              handleChannelMuteEvent(connectionId, ChannelMuteEvent.REQUEST_RECEIVED)
+            }
+          }
+        case None =>
+          // This should never happen since completed receives are processed immediately after `poll()`
+          throw new IllegalStateException(s"Channel ${receive.source} removed from selector before processing completed receive")
+      }
+    } catch {
+      // note that even though we got an exception, we can assume that receive.source is valid.
+      // Issues with constructing a valid receive object were handled earlier
+      case e: Throwable =>
+        processChannelException(receive.source, s"Exception while processing request from ${receive.source}", e)
+    }
+  }
+  selector.clearCompletedReceives()
+}
+
+```
+
+
+
+
+
+```scala
+private def processCompletedSends(): Unit = {
+  selector.completedSends.forEach { send =>
+    try {
+      val response = inflightResponses.remove(send.destinationId).getOrElse {
+        throw new IllegalStateException(s"Send for ${send.destinationId} completed, but not in `inflightResponses`")
+      }
+      updateRequestMetrics(response)
+
+      // Invoke send completion callback
+      response.onComplete.foreach(onComplete => onComplete(send))
+
+      // Try unmuting the channel. If there was no quota violation and the channel has not been throttled,
+      // it will be unmuted immediately. If the channel has been throttled, it will unmuted only if the throttling
+      // delay has already passed by now.
+      handleChannelMuteEvent(send.destinationId, ChannelMuteEvent.RESPONSE_SENT)
+      tryUnmuteChannel(send.destinationId)
+    } catch {
+      case e: Throwable => processChannelException(send.destinationId,
+        s"Exception while processing completed send to ${send.destinationId}", e)
+    }
+  }
+  selector.clearCompletedSends()
+}
+```
+
+
+
+
+
 ## 协议
 
 kafka定制了多种协议类型。每个协议类型都有Request和Response。例如：`ProduceRequest`和`ProduceResponse`。主要在`D:\Code\4_Scala\kafka-2.8\clients\src\main\java\org\apache\kafka\common\requests`中。

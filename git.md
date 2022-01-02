@@ -1,3 +1,7 @@
+[TOC]
+
+
+
 # git
 
 ## 常用操作
@@ -185,4 +189,26 @@ git fetch origin master 获取远端origin的master分支
 git log -p master..origin/master 查看本地master与远端master的差异
 git merge origin/master 合并远端orgin的master分支到当前分支
 ```
+
+## git log
+
+`git log`
+
+`git log --oneline`
+
+`git log -n 1`: 最近的1个commit
+
+`git log --all`: 所有的git记录，包括不同分支的全部都显示
+
+`git log --graph`:图形显示
+
+
+
+## git commit
+
+`git commit --amend`: 更改最新一次的commit message
+
+`git rebase`: 变基
+
+- `git rebase -i 版本号`：产生一个交互界面，在里面进行交互。
 

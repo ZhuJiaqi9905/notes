@@ -316,7 +316,9 @@ int ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr 
 
 ![](figs/18.png)
 
+All posted Send Requested, Signaled and Unsignaled, are considered outstanding until a Work Completion that they, or Send Requests that were posted after them, was polled from the Completion Queue associated with the Send Queue. This means if one works with a Queue Pair that was configured to work with Unsignaled Completions, he must make sure that occasionally (before the Send Queue is full with outstanding Send Requests) a Send Request that generate Work Completion will be posted.
 
+- once the Signaled Send Request is finished,the previous Unsignaled Send Requests will also be finished
 
 ## rdma struct
 
@@ -687,9 +689,15 @@ https://www.rdmamojo.com/
 
 
 
+## ODP
 
+On-Demand-Paging: a technique to ease the memory registration. Applications do not need to pin down the underlying physical pages of the address space, and track the validity of the mappings. Rather, the HCA (Host Channel Adapter) requests the latest translations from the OS when pages are not present, and the OS invalidates translations which are no longer valid due to either non-present pages or mapping changes.
 
+ODP分为explicit 和 implicit.
 
+剩下的之后写
+
+https://community.mellanox.com/s/article/understanding-on-demand-paging--odp-x
 
 
 

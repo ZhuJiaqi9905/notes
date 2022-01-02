@@ -4,6 +4,68 @@ Api : https://www.ibm.com/docs/en/sdk-java-technology/7.1?topic=reference-networ
 
 一些术语：https://www.ibm.com/docs/en/sdk-java-technology/7.1?topic=library-jverbs-programming-terms-artifacts
 
+可以学习一下源码中的类的设计
+
+`class IbvSge`
+
+- 就是SG表的元素，加上getter和setter
+
+`class IbvWC`
+
+- 就是wc，加上getter和setter
+- 在c语言中,一般都是在栈上分配wc，然后作为ibv_poll_cq的出参。也可以预先分配好然后全局重用
+
+`RdmaConnParam`
+
+- rdma connection management的参数
+
+
+
+`RdmaCm`
+
+- Rdma connection management
+
+- ```java
+  public abstract RdmaEventChannel createEventChannel() throws IOException;
+  public RdmaCmId createId(RdmaEventChannel cmChannel, short rdma_ps)
+  public IbvQP createQP(RdmaCmId id, IbvPd pd, IbvQPInitAttr attr)
+  public void bindAddr(RdmaCmId id, SocketAddress addr)
+  public abstract void listen(RdmaCmId id, int backlog)
+  public abstract void resolveAddr(RdmaCmId id, SocketAddress src, SocketAddress dst, int timeout)
+  public abstract void resolveRoute(RdmaCmId id, int timeout)
+  			throws IOException;
+  public abstract RdmaCmEvent getCmEvent(RdmaEventChannel cmChannel, int timeout)
+  			throws IOException;
+  public abstract void connect(RdmaCmId id, RdmaConnParam connParam)
+  			throws IOException;
+  public abstract void accept(RdmaCmId id, RdmaConnParam connParam)
+  			throws IOException;
+  public abstract int ackCmEvent(RdmaCmEvent cmEvent);
+  public abstract int disconnect(RdmaCmId id) throws IOException;
+  public abstract int destroyEventChannel(RdmaEventChannel cmChannel) throws IOException;
+  public abstract int destroyCmId(RdmaCmId id) throws IOException;
+  public abstract int destroyQP(RdmaCmId id) throws IOException;
+  public abstract SocketAddress getSrcAddr(RdmaCmId id) throws IOException;
+  public abstract SocketAddress getDstAddr(RdmaCmId id) throws IOException;
+  public abstract int destroyEp(RdmaCmId id) throws IOException;
+  ```
+
+`RdmaCmEvent`
+
+- 对cmEvent的封装
+
+`RdmaEventChannel`
+
+- ```
+  	private RdmaCm cm;
+  	private int fd;
+  	protected volatile boolean isOpen;
+  ```
+
+- 只有上面这几个成员变量，它的操作都是靠RdmaCm完成的。
+
+- 感觉我们设计的时候可以改成让RdmaEventChannel单独维护自己的创建和销毁
+
 ## RdmaEventChannel
 
 `createEventChannel()`
